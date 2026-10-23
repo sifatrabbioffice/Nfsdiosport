@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14        # Apple Silicon রানার, Xcode সহ
+    runs-on: macos-15       # Apple Silicon রানার, Xcode সহ
     timeout-minutes: 120     # বিল্ডে সময় লাগতে পারে, তাই ২ ঘণ্টা
 
     steps:
