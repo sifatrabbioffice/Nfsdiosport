@@ -14,13 +14,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Build and Archive Project
+      - name: Find and Build Xcode Project
         run: |
           set -e
           
-          # Workspace বা Project ফাইল খুঁজে বের করা
-          XCODE_WORKSPACE=$(ls -d *.xcworkspace 2>/dev/null | head -n 1)
-          XCODE_PROJ=$(ls -d *.xcodeproj 2>/dev/null | head -n 1)
+          echo "Searching for Xcode workspace or project recursively..."
+          XCODE_WORKSPACE=$(find . -name "*.xcworkspace" -maxdepth 4 -not -path '*/.*' | head -n 1)
+          XCODE_PROJ=$(find . -name "*.xcodeproj" -maxdepth 4 -not -path '*/.*' | head -n 1)
           
           if [ -n "$XCODE_WORKSPACE" ]; then
             echo "Found Workspace: $XCODE_WORKSPACE"
@@ -53,6 +53,8 @@ jobs:
                        archive
           else
             echo "Error: No Xcode workspace or project found in the repository!"
+            echo "Listing repository structure for debugging:"
+            ls -R
             exit 1
           fi
 
