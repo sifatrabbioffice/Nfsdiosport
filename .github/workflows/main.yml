@@ -1,4 +1,4 @@
-name: Build iOS IPA with Build Script
+name: Build SpeedBreaker Unsigned iOS IPA
 
 on:
   workflow_dispatch:
@@ -7,74 +7,82 @@ on:
 
 jobs:
   build:
-    name: Build iOS App
+    name: Build iOS IPA
     runs-on: macos-latest
 
     steps:
-      - name: Checkout Repository
+      # ১. রিপোজিটরির সমস্ত সোর্স কোড ও সাব-মডিউল ডাউনলোড
+      - name: Checkout Repository with Submodules
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
-      - name: Build Dependencies
+      # ২. ডিপেন্ডেন্সি প্যাকেজ ও ডিপেন্ডেন্সি স্ক্রিপ্ট বিল্ড
+      - name: Build iOS Dependencies
         run: |
-          echo "Setting permission and running build_deps.sh..."
-          # ফোল্ডার বা ফাইলের কেস সেন্সিভিটি (Scripts বনাম scripts) হ্যান্ডেল করার জন্য
-          BUILD_DEPS_SCRIPT=$(find . -iwholename "*/ios/build_deps.sh" | head -n 1)
-          if [ -n "$BUILD_DEPS_SCRIPT" ]; then
-            chmod +x "$BUILD_DEPS_SCRIPT"
-            "$BUILD_DEPS_SCRIPT" ~/speedbreaker-ios-deps
+          set -e
+          echo "Setting up dependencies folder and build..."
+          mkdir -p ~/speedbreaker-ios-deps
+          
+          # স্ক্রিপ্ট ফাইলের পারমিশন দেওয়া ও রান করা
+          if [ -f "Scripts/ios/build_deps.sh" ]; then
+            chmod +x Scripts/ios/build_deps.sh
+            Scripts/ios/build_deps.sh ~/speedbreaker-ios-deps
+          elif [ -f "scripts/ios/build_deps.sh" ]; then
+            chmod +x scripts/ios/build_deps.sh
+            scripts/ios/build_deps.sh ~/speedbreaker-ios-deps
           else
-            echo "Error: build_deps.sh not found!"
+            echo "Error: build_deps.sh script not found!"
             exit 1
           fi
 
-      - name: Run Build Script with Environment Variables
-        env:
-          IOS_DEPS: ${{ github.workspace }}/../speedbreaker-ios-deps
-          DEVELOPMENT_TEAM: "A1B2C3D4E5"
-          IOS_BUNDLE_ID: "com.yourname.SpeedBreaker"
+      # ৩. অ্যাপের আসল সোর্স ফাইল খুঁজে বের করে Release IPA তৈরি
+      - name: Build and Package Unsigned IPA
         run: |
-          echo "Locating and running build.sh..."
-          BUILD_SCRIPT=$(find . -iwholename "*/ios/build.sh" | head -n 1)
+          set -e
           
-          if [ -n "$BUILD_SCRIPT" ]; then
-            echo "Found build script at: $BUILD_SCRIPT"
+          # প্যাথ এনভায়রনমেন্ট ভ্যারিয়েবল সেটআপ
+          export IOS_DEPS="$HOME/speedbreaker-ios-deps"
+          export DEVELOPMENT_TEAM="A1B2C3D4E5"
+          export IOS_BUNDLE_ID="com.speedbreaker.app"
+
+          # বিল্ড স্ক্রিপ্ট থাকলে সরাসরি বিল্ড স্ক্রিপ্ট থেকে রান করা
+          if [ -f "scripts/ios/build.sh" ] || [ -f "Scripts/ios/build.sh" ]; then
+            BUILD_SCRIPT=$(find . -iwholename "*/ios/build.sh" | head -n 1)
             chmod +x "$BUILD_SCRIPT"
-            
-            # এক্সপোর্ট ভ্যারিয়েবল সেট করে কমান্ড রান করা
-            export IOS_DEPS="$HOME/speedbreaker-ios-deps"
-            export DEVELOPMENT_TEAM="A1B2C3D4E5"
-            export IOS_BUNDLE_ID="com.yourname.SpeedBreaker"
-            
             "$BUILD_SCRIPT" install
           else
-            echo "Error: build.sh script not found in the repository!"
-            exit 1
-          fi
-
-      - name: Package IPA if generated
-        run: |
-          echo "Searching for built IPA or App..."
-          # যদি build.sh নিজে IPA তৈরি না করে .app ফাইল তৈরি করে, তবে সেটিকে Payload ফোল্ডারে প্যাক করবে
-          if [ -d "build/app.xcarchive/Products/Applications" ]; then
+            echo "Falling back to xcodebuild..."
+            PBX_FILE=$(find . -name "project.pbxproj" -not -path '*/.*' | head -n 1)
+            XCODE_PROJ_DIR=$(dirname "$PBX_FILE")
+            SCHEME=$(xcodebuild -project "$XCODE_PROJ_DIR" -list | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
+            
+            xcodebuild -project "$XCODE_PROJ_DIR" \
+                       -scheme "$SCHEME" \
+                       -configuration Release \
+                       -sdk iphoneos \
+                       -archivePath build/app.xcarchive \
+                       CODE_SIGN_IDENTITY="" \
+                       CODE_SIGNING_REQUIRED=NO \
+                       CODE_SIGNING_ALLOWED=NO \
+                       archive
+                       
             mkdir -p build/Payload
             cp -R build/app.xcarchive/Products/Applications/*.app build/Payload/
             cd build
-            zip -r unsigned-app.ipa Payload
+            zip -r SpeedBreaker-unsigned.ipa Payload
             cd ..
-          elif [ -f "*.ipa" ]; then
-            echo "IPA already exists."
-          else
-            echo "Checking common output directories..."
-            find . -name "*.ipa" -o -name "*.app"
           fi
 
-      - name: Upload IPA Artifact
+      # ৪. চূড়ান্ত প্রস্তুতকৃত IPA ফাইল গিটহাব আর্টিফ্যাক্টে আপলোড করা
+      - name: Upload Unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ios-ipa-artifact
+          name: SpeedBreaker-Unsigned-IPA
           path: |
             *.ipa
             build/*.ipa
             **/build/**/*.ipa
             build/app.xcarchive/Products/Applications/*.app
-          if-no-files-found: ignore
+          if-no-files-found: error
