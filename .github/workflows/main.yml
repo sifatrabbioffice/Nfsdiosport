@@ -1,4 +1,4 @@
-name: Build Unsigned IPAname: Build Unsigned IPA
+name: Build Unsigned IPA
 
 on:
   push:
@@ -48,74 +48,6 @@ jobs:
           if-no-files-found: error
 
       # ৬. ট্যাগ পুশ করলে GitHub Release-এও অ্যাটাচ
-      - name: Upload IPA to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/ios/ipa/SpeedBreaker--ios.ipa
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-on:
-  push:
-    branches: [ main ]
-    tags: [ 'v*' ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: macos-14
-    timeout-minutes: 60
-
-    steps:
-      # ১. পুরো রিপোজিটরি GitHub থেকে ডাউনলোড করে Actions-এর ভেতরে বসানো
-      - name: Checkout repository (download full repo)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1   # শুধু সর্বশেষ কমিট, দ্রুত ডাউনলোডের জন্য
-
-      # ২. ফাইলগুলো সত্যিই এসেছে কিনা যাচাই করা
-      - name: Verify repository files are present
-        run: |
-          echo "=== Repository root ==="
-          ls -la
-          echo "=== scripts/ios directory ==="
-          if [ -d "scripts/ios" ]; then
-            ls -la scripts/ios/
-          else
-            echo "ERROR: scripts/ios directory not found!" >&2
-            exit 1
-          fi
-          echo "=== Checking specific scripts ==="
-          test -f scripts/ios/build_deps.sh || { echo "ERROR: build_deps.sh missing"; exit 1; }
-          test -f scripts/ios/make_ipa.sh   || { echo "ERROR: make_ipa.sh missing"; exit 1; }
-          echo "All required scripts are present."
-
-      # ৩. বিল্ড ডিপেন্ডেন্সি ইনস্টল
-      - name: Install Ninja
-        run: brew install ninja
-
-      # ৪. iOS লাইব্রেরি বিল্ড
-      - name: Build iOS dependencies
-        run: |
-          chmod +x scripts/ios/build_deps.sh
-          scripts/ios/build_deps.sh "${{ github.workspace }}/ios-deps"
-
-      # ৫. আনসাইনড IPA তৈরি
-      - name: Build unsigned IPA
-        run: |
-          chmod +x scripts/ios/make_ipa.sh
-          scripts/ios/make_ipa.sh
-
-      # ৬. IPA আর্টিফ্যাক্ট হিসেবে আপলোড
-      - name: Upload IPA as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SpeedBreaker-unsigned-ipa
-          path: build/ios/ipa/SpeedBreaker--ios.ipa
-          if-no-files-found: error
-
-      # ৭. ট্যাগ পুশ করলে Release-এও অ্যাটাচ
       - name: Upload IPA to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
