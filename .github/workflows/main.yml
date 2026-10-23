@@ -1,4 +1,4 @@
-name: Build Unsigned iOS IPA
+name: Build iOS IPA with Build Script
 
 on:
   workflow_dispatch:
@@ -7,67 +7,74 @@ on:
 
 jobs:
   build:
-    name: Build iOS App Unsigned
+    name: Build iOS App
     runs-on: macos-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Find and Build Xcode Project
+      - name: Build Dependencies
         run: |
-          set -e
-          
-          echo "Searching for Xcode workspace or project recursively..."
-          XCODE_WORKSPACE=$(find . -name "*.xcworkspace" -maxdepth 4 -not -path '*/.*' | head -n 1)
-          XCODE_PROJ=$(find . -name "*.xcodeproj" -maxdepth 4 -not -path '*/.*' | head -n 1)
-          
-          if [ -n "$XCODE_WORKSPACE" ]; then
-            echo "Found Workspace: $XCODE_WORKSPACE"
-            SCHEME=$(xcodebuild -workspace "$XCODE_WORKSPACE" -list | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
-            echo "Using Scheme: $SCHEME"
-            
-            xcodebuild -workspace "$XCODE_WORKSPACE" \
-                       -scheme "$SCHEME" \
-                       -configuration Release \
-                       -sdk iphoneos \
-                       -archivePath build/app.xcarchive \
-                       CODE_SIGN_IDENTITY="" \
-                       CODE_SIGNING_REQUIRED=NO \
-                       CODE_SIGNING_ALLOWED=NO \
-                       archive
-                       
-          elif [ -n "$XCODE_PROJ" ]; then
-            echo "Found Project: $XCODE_PROJ"
-            SCHEME=$(xcodebuild -project "$XCODE_PROJ" -list | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
-            echo "Using Scheme: $SCHEME"
-            
-            xcodebuild -project "$XCODE_PROJ" \
-                       -scheme "$SCHEME" \
-                       -configuration Release \
-                       -sdk iphoneos \
-                       -archivePath build/app.xcarchive \
-                       CODE_SIGN_IDENTITY="" \
-                       CODE_SIGNING_REQUIRED=NO \
-                       CODE_SIGNING_ALLOWED=NO \
-                       archive
+          echo "Setting permission and running build_deps.sh..."
+          # ফোল্ডার বা ফাইলের কেস সেন্সিভিটি (Scripts বনাম scripts) হ্যান্ডেল করার জন্য
+          BUILD_DEPS_SCRIPT=$(find . -iwholename "*/ios/build_deps.sh" | head -n 1)
+          if [ -n "$BUILD_DEPS_SCRIPT" ]; then
+            chmod +x "$BUILD_DEPS_SCRIPT"
+            "$BUILD_DEPS_SCRIPT" ~/speedbreaker-ios-deps
           else
-            echo "Error: No Xcode workspace or project found in the repository!"
-            echo "Listing repository structure for debugging:"
-            ls -R
+            echo "Error: build_deps.sh not found!"
             exit 1
           fi
 
-      - name: Package Unsigned IPA
+      - name: Run Build Script with Environment Variables
+        env:
+          IOS_DEPS: ${{ github.workspace }}/../speedbreaker-ios-deps
+          DEVELOPMENT_TEAM: "A1B2C3D4E5"
+          IOS_BUNDLE_ID: "com.yourname.SpeedBreaker"
         run: |
-          mkdir -p build/Payload
-          cp -R build/app.xcarchive/Products/Applications/*.app build/Payload/
-          cd build
-          zip -r unsigned-app.ipa Payload
-          cd ..
+          echo "Locating and running build.sh..."
+          BUILD_SCRIPT=$(find . -iwholename "*/ios/build.sh" | head -n 1)
+          
+          if [ -n "$BUILD_SCRIPT" ]; then
+            echo "Found build script at: $BUILD_SCRIPT"
+            chmod +x "$BUILD_SCRIPT"
+            
+            # এক্সপোর্ট ভ্যারিয়েবল সেট করে কমান্ড রান করা
+            export IOS_DEPS="$HOME/speedbreaker-ios-deps"
+            export DEVELOPMENT_TEAM="A1B2C3D4E5"
+            export IOS_BUNDLE_ID="com.yourname.SpeedBreaker"
+            
+            "$BUILD_SCRIPT" install
+          else
+            echo "Error: build.sh script not found in the repository!"
+            exit 1
+          fi
+
+      - name: Package IPA if generated
+        run: |
+          echo "Searching for built IPA or App..."
+          # যদি build.sh নিজে IPA তৈরি না করে .app ফাইল তৈরি করে, তবে সেটিকে Payload ফোল্ডারে প্যাক করবে
+          if [ -d "build/app.xcarchive/Products/Applications" ]; then
+            mkdir -p build/Payload
+            cp -R build/app.xcarchive/Products/Applications/*.app build/Payload/
+            cd build
+            zip -r unsigned-app.ipa Payload
+            cd ..
+          elif [ -f "*.ipa" ]; then
+            echo "IPA already exists."
+          else
+            echo "Checking common output directories..."
+            find . -name "*.ipa" -o -name "*.app"
+          fi
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-ios-ipa
-          path: build/unsigned-app.ipa
+          name: ios-ipa-artifact
+          path: |
+            *.ipa
+            build/*.ipa
+            **/build/**/*.ipa
+            build/app.xcarchive/Products/Applications/*.app
+          if-no-files-found: ignore
