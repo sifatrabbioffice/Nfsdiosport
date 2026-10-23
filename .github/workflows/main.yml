@@ -1,4 +1,60 @@
-name: Build Unsigned IPA
+name: Build Unsigned IPAname: Build Unsigned IPA
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]          # ট্যাগ পুশ করলে রিলিজেও অ্যাটাচ হবে
+  workflow_dispatch:         # ম্যানুয়ালি রান করার জন্যও
+
+jobs:
+  build:
+    runs-on: macos-14        # Apple Silicon রানার, Xcode সহ
+    timeout-minutes: 120     # বিল্ডে সময় লাগতে পারে, তাই ২ ঘণ্টা
+
+    steps:
+      # ১. পুরো রিপোজিটরি GitHub থেকে ডাউনলোড করে Actions-এর ভেতরে বসানো
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # পুরো হিস্ট্রি সহ ক্লোন
+
+      # ২. প্রয়োজনীয় টুল ইনস্টল (CMake, Ninja)
+      - name: Install build tools
+        run: |
+          brew install cmake ninja
+
+      # ৩. iOS ডিপেন্ডেন্সি বিল্ড (SDL3, MoltenVK, FFmpeg-XMA)
+      - name: Build iOS dependencies
+        run: |
+          chmod +x scripts/ios/build_deps.sh
+          scripts/ios/build_deps.sh "${{ github.workspace }}/ios-deps"
+        env:
+          IOS_DEPS: ${{ github.workspace }}/ios-deps
+
+      # ৪. আনসাইনড IPA তৈরি
+      - name: Build unsigned IPA
+        run: |
+          chmod +x scripts/ios/make_ipa.sh
+          IOS_UNSIGNED=1 scripts/ios/make_ipa.sh
+        env:
+          IOS_DEPS: ${{ github.workspace }}/ios-deps
+
+      # ৫. IPA আর্টিফ্যাক্ট হিসেবে আপলোড
+      - name: Upload IPA as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpeedBreaker-unsigned-ipa
+          path: build/ios/ipa/SpeedBreaker--ios.ipa
+          if-no-files-found: error
+
+      # ৬. ট্যাগ পুশ করলে GitHub Release-এও অ্যাটাচ
+      - name: Upload IPA to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/ios/ipa/SpeedBreaker--ios.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 on:
   push:
