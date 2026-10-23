@@ -1,0 +1,51 @@
+name: Build Unsigned IPA
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]          # ট্যাগ পুশ করলে রিলিজেও অ্যাটাচ হবে
+  workflow_dispatch:         # ম্যানুয়ালি রান করার জন্যও
+
+jobs:
+  build:
+    runs-on: macos-14        # Apple Silicon রানার (Xcode 15/16 থাকে)
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies (Ninja)
+        run: brew install ninja
+
+      - name: Set up environment
+        run: |
+          echo "IOS_DEPS=${{ github.workspace }}/ios-deps" >> $GITHUB_ENV
+          echo "IOS_UNSIGNED=1" >> $GITHUB_ENV
+          echo "DEVELOPER_DIR=$(xcode-select -p)" >> $GITHUB_ENV
+
+      - name: Build iOS dependencies (SDL3, MoltenVK, FFmpeg-XMA)
+        run: |
+          chmod +x scripts/ios/build_deps.sh
+          scripts/ios/build_deps.sh "$IOS_DEPS"
+
+      - name: Build unsigned IPA
+        run: |
+          chmod +x scripts/ios/make_ipa.sh
+          scripts/ios/make_ipa.sh
+
+      - name: Upload IPA as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpeedBreaker-unsigned-ipa
+          path: build/ios/ipa/SpeedBreaker--ios.ipa
+          if-no-files-found: error
+
+      # （ঐচ্ছিক）ট্যাগ পুশ করলে রিলিজেও IPA অ্যাটাচ হবে
+      - name: Upload IPA to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/ios/ipa/SpeedBreaker--ios.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
