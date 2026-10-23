@@ -3,37 +3,55 @@ name: Build Unsigned IPA
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]          # ট্যাগ পুশ করলে রিলিজেও অ্যাটাচ হবে
-  workflow_dispatch:         # ম্যানুয়ালি রান করার জন্যও
+    tags: [ 'v*' ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-14        # Apple Silicon রানার (Xcode 15/16 থাকে)
+    runs-on: macos-14
     timeout-minutes: 60
 
     steps:
-      - name: Checkout repository
+      # ১. পুরো রিপোজিটরি GitHub থেকে ডাউনলোড করে Actions-এর ভেতরে বসানো
+      - name: Checkout repository (download full repo)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1   # শুধু সর্বশেষ কমিট, দ্রুত ডাউনলোডের জন্য
 
-      - name: Install build dependencies (Ninja)
+      # ২. ফাইলগুলো সত্যিই এসেছে কিনা যাচাই করা
+      - name: Verify repository files are present
+        run: |
+          echo "=== Repository root ==="
+          ls -la
+          echo "=== scripts/ios directory ==="
+          if [ -d "scripts/ios" ]; then
+            ls -la scripts/ios/
+          else
+            echo "ERROR: scripts/ios directory not found!" >&2
+            exit 1
+          fi
+          echo "=== Checking specific scripts ==="
+          test -f scripts/ios/build_deps.sh || { echo "ERROR: build_deps.sh missing"; exit 1; }
+          test -f scripts/ios/make_ipa.sh   || { echo "ERROR: make_ipa.sh missing"; exit 1; }
+          echo "All required scripts are present."
+
+      # ৩. বিল্ড ডিপেন্ডেন্সি ইনস্টল
+      - name: Install Ninja
         run: brew install ninja
 
-      - name: Set up environment
-        run: |
-          echo "IOS_DEPS=${{ github.workspace }}/ios-deps" >> $GITHUB_ENV
-          echo "IOS_UNSIGNED=1" >> $GITHUB_ENV
-          echo "DEVELOPER_DIR=$(xcode-select -p)" >> $GITHUB_ENV
-
-      - name: Build iOS dependencies (SDL3, MoltenVK, FFmpeg-XMA)
+      # ৪. iOS লাইব্রেরি বিল্ড
+      - name: Build iOS dependencies
         run: |
           chmod +x scripts/ios/build_deps.sh
-          scripts/ios/build_deps.sh "$IOS_DEPS"
+          scripts/ios/build_deps.sh "${{ github.workspace }}/ios-deps"
 
+      # ৫. আনসাইনড IPA তৈরি
       - name: Build unsigned IPA
         run: |
           chmod +x scripts/ios/make_ipa.sh
           scripts/ios/make_ipa.sh
 
+      # ৬. IPA আর্টিফ্যাক্ট হিসেবে আপলোড
       - name: Upload IPA as artifact
         uses: actions/upload-artifact@v4
         with:
@@ -41,7 +59,7 @@ jobs:
           path: build/ios/ipa/SpeedBreaker--ios.ipa
           if-no-files-found: error
 
-      # （ঐচ্ছিক）ট্যাগ পুশ করলে রিলিজেও IPA অ্যাটাচ হবে
+      # ৭. ট্যাগ পুশ করলে Release-এও অ্যাটাচ
       - name: Upload IPA to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
